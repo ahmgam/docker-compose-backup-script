@@ -20,7 +20,7 @@ def _project_remote_path(base_path: str, project_name: str) -> str:
     return project_name
 
 
-def backup_all_projects(rclone_remote: str, remote_path: str, projects_root: Path):
+def backup_all_projects(rclone_remote: str, remote_path: str, projects_root: Path, backups_to_keep: int = 4):
     """
     Run backups for every project directory inside projects_root.
 
@@ -45,7 +45,12 @@ def backup_all_projects(rclone_remote: str, remote_path: str, projects_root: Pat
         print("=" * 80)
         project_remote_path = _project_remote_path(remote_path, project_dir.name)
         try:
-            backup_project(project_dir, rclone_remote, project_remote_path)
+            backup_project(
+                project_dir,
+                rclone_remote,
+                project_remote_path,
+                backups_to_keep=backups_to_keep,
+            )
         except Exception as exc:
             failures.append((project_dir, exc))
             print(f"ERROR: Backup failed for {project_dir}: {exc}")
@@ -74,11 +79,22 @@ def main():
         "projects_dir",
         help="Directory containing multiple Docker Compose project folders.",
     )
+    parser.add_argument(
+        "--backups-to-keep",
+        type=int,
+        default=4,
+        help="Number of most recent backups to keep on the remote (default: 4).",
+    )
 
     args = parser.parse_args()
 
     try:
-        backup_all_projects(args.rclone_remote, args.remote_path, args.projects_dir)
+        backup_all_projects(
+            args.rclone_remote,
+            args.remote_path,
+            args.projects_dir,
+            backups_to_keep=args.backups_to_keep,
+        )
     except Exception as exc:
         print(f"\nERROR: {exc}")
         sys.exit(1)

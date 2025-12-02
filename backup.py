@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import datetime
+import json
 import shutil
 import subprocess
 import sys
@@ -198,7 +199,70 @@ def rclone_copy_file(file_path: Path, remote: str, remote_path: str):
     run_cmd(cmd)
 
 
-def backup_project(project_dir, rclone_remote, remote_path):
+def rotate_project_backups(remote: str, remote_path: str, keep: int):
+    """
+    Keep only the newest `keep` backup files in the given remote path.
+    Older backups are deleted using rclone deletefile.
+    """
+    if keep < 1:
+        raise ValueError("keep must be at least 1")
+
+    target = f"{remote}:{remote_path}" if remote_path else f"{remote}:"
+    print(f"Listing backups at {target} ...")
+
+    result = subprocess.run(
+        ["rclone", "lsjson", target, "--files-only"],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        err = result.stderr.strip() or "unknown error"
+        raise RuntimeError(f"Failed to list backups via rclone: {err}")
+
+    try:
+        entries = json.loads(result.stdout or "[]")
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"Unable to parse rclone output as JSON: {exc}") from exc
+
+    # Limit to zip files to avoid touching unexpected data in the same folder.
+    backups = [
+        entry for entry in entries
+        if not entry.get("IsDir") and str(entry.get("Path", "")).endswith(".zip")
+    ]
+
+    def _parse_time(mod_time: str):
+        if not mod_time:
+            return datetime.datetime.min
+        try:
+            # rclone uses RFC3339 with a trailing Z
+            return datetime.datetime.fromisoformat(mod_time.replace("Z", "+00:00"))
+        except ValueError:
+            return datetime.datetime.min
+
+    backups.sort(key=lambda e: _parse_time(e.get("ModTime")))
+
+    if len(backups) <= keep:
+        print(f"Found {len(backups)} backups; nothing to delete (keep={keep}).")
+        return
+
+    to_delete = backups[:-keep]
+    print(f"Keeping newest {keep} backups, deleting {len(to_delete)} older backups...")
+
+    for entry in to_delete:
+        rel_path = entry.get("Path") or entry.get("Name")
+        if not rel_path:
+            continue
+
+        if remote_path:
+            delete_target = f"{remote}:{remote_path.rstrip('/')}/{rel_path}"
+        else:
+            delete_target = f"{remote}:{rel_path}"
+
+        print(f"Deleting {delete_target}")
+        run_cmd(["rclone", "deletefile", delete_target])
+
+
+def backup_project(project_dir, rclone_remote, remote_path, backups_to_keep: int = 4):
     """
     Run the full backup workflow. Accepts strings or Path-like objects.
 
@@ -278,6 +342,11 @@ def backup_project(project_dir, rclone_remote, remote_path):
             print(f"Removing local final backup zip: {final_zip_path}")
             final_zip_path.unlink()
 
+        # 10) Rotate old backups on remote
+        print(f"Rotating backups on remote, keeping last {backups_to_keep} archives...")
+        rotate_project_backups(remote, remote_path, backups_to_keep)
+        print("Backup rotation completed.")
+        
         print("\nBackup completed successfully.")
         return final_zip_path
 
@@ -308,11 +377,22 @@ def main():
         "remote_path",
         help="Path inside the rclone remote (e.g. 'backups/myproject'). Use '' for the root.",
     )
+    parser.add_argument(
+        "--backups-to-keep",
+        type=int,
+        default=4,
+        help="Number of most recent backups to keep on the remote (default: 4).",
+    )
 
     args = parser.parse_args()
 
     try:
-        backup_project(args.project_dir, args.rclone_remote, args.remote_path)
+        backup_project(
+            args.project_dir,
+            args.rclone_remote,
+            args.remote_path,
+            backups_to_keep=args.backups_to_keep,
+        )
     except Exception:
         sys.exit(1)
 
