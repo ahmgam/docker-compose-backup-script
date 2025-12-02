@@ -198,35 +198,18 @@ def rclone_copy_file(file_path: Path, remote: str, remote_path: str):
     run_cmd(cmd)
 
 
-def main():
-    parser = argparse.ArgumentParser(
-        description=(
-            "Backup a Docker Compose project: project zip, volume exports, "
-            "bundle into one zip, upload via rclone."
-        )
-    )
-    parser.add_argument(
-        "project_dir",
-        help="Path to the Docker Compose project directory (where docker-compose.yml lives).",
-    )
-    parser.add_argument(
-        "rclone_remote",
-        help="rclone remote name (e.g. 'myremote').",
-    )
-    parser.add_argument(
-        "remote_path",
-        help="Path inside the rclone remote (e.g. 'backups/myproject'). Use '' for the root.",
-    )
+def backup_project(project_dir, rclone_remote, remote_path):
+    """
+    Run the full backup workflow. Accepts strings or Path-like objects.
 
-    args = parser.parse_args()
-
-    project_dir = Path(args.project_dir).resolve()
+    Returns the final zip Path (even though it is removed locally after upload).
+    Raises on any failure; callers can catch to handle errors.
+    """
+    project_dir = Path(project_dir).resolve()
     if not project_dir.is_dir():
-        print(f"ERROR: Project directory does not exist or is not a directory: {project_dir}")
-        sys.exit(1)
+        raise FileNotFoundError(f"Project directory does not exist or is not a directory: {project_dir}")
 
-    remote = args.rclone_remote
-    remote_path = args.remote_path
+    remote = rclone_remote
 
     timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
     project_name = project_dir.name
@@ -296,12 +279,41 @@ def main():
             final_zip_path.unlink()
 
         print("\nBackup completed successfully.")
+        return final_zip_path
 
     except Exception as e:
         print(f"\nERROR: {e}")
         print(f"Temp backup directory preserved at: {temp_dir}")
         if final_zip_path:
             print(f"Final zip (if created) at: {final_zip_path}")
+        raise
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description=(
+            "Backup a Docker Compose project: project zip, volume exports, "
+            "bundle into one zip, upload via rclone."
+        )
+    )
+    parser.add_argument(
+        "project_dir",
+        help="Path to the Docker Compose project directory (where docker-compose.yml lives).",
+    )
+    parser.add_argument(
+        "rclone_remote",
+        help="rclone remote name (e.g. 'myremote').",
+    )
+    parser.add_argument(
+        "remote_path",
+        help="Path inside the rclone remote (e.g. 'backups/myproject'). Use '' for the root.",
+    )
+
+    args = parser.parse_args()
+
+    try:
+        backup_project(args.project_dir, args.rclone_remote, args.remote_path)
+    except Exception:
         sys.exit(1)
 
 
