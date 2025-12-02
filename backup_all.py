@@ -13,6 +13,13 @@ def iter_project_dirs(root: Path):
             yield path
 
 
+def _project_remote_path(base_path: str, project_name: str) -> str:
+    """Build remote path by appending project name to the base path."""
+    if base_path:
+        return f"{base_path.rstrip('/')}/{project_name}"
+    return project_name
+
+
 def backup_all_projects(rclone_remote: str, remote_path: str, projects_root: Path):
     """
     Run backups for every project directory inside projects_root.
@@ -36,8 +43,9 @@ def backup_all_projects(rclone_remote: str, remote_path: str, projects_root: Pat
         print("\n" + "=" * 80)
         print(f"Starting backup for project: {project_dir.name} ({project_dir})")
         print("=" * 80)
+        project_remote_path = _project_remote_path(remote_path, project_dir.name)
         try:
-            backup_project(project_dir, rclone_remote, remote_path)
+            backup_project(project_dir, rclone_remote, project_remote_path)
         except Exception as exc:
             failures.append((project_dir, exc))
             print(f"ERROR: Backup failed for {project_dir}: {exc}")
