@@ -1,6 +1,8 @@
 # Docker Compose Backup Script
 
-Python helper to snapshot a Docker Compose project, export its named volumes, bundle everything into a single zip, and push it to an rclone remote. Intended for simple self-hosted stacks (databases, apps, media servers) where you want a repeatable, file-based backup.
+Two helpers:
+- `backup.py` – snapshot a single Docker Compose project, export its named volumes, bundle everything into a single zip, push to an rclone remote, and rotate old backups.
+- `backup_all.py` – run the same workflow for every project directory inside a root folder, using a shared remote/path, and rotate per-project backups.
 
 ## Requirements
 - Python 3.8+ with `pyyaml` installed (`pip install pyyaml`)
@@ -16,25 +18,34 @@ Python helper to snapshot a Docker Compose project, export its named volumes, bu
 5. Brings the stack back up (`docker compose up -d`).
 6. Zips all exports into `./<project>-YYYYMMDD-HHMMSS.zip`.
 7. Uploads that final zip to the given rclone remote/path.
-8. Cleans up local temp data and the final zip. On errors, the temp directory is left in place for inspection.
+8. Rotates remote backups, keeping the newest N archives (default 4), deleting older ones.
+9. Cleans up local temp data and the final zip. On errors, the temp directory is left in place for inspection.
 
 Named volumes are discovered by scanning service `volumes:` entries and the top-level `volumes:` section. Host-path mounts are ignored.
 
 ## Usage
 From the machine that hosts your Compose project:
 
+Single project:
 ```bash
-python backup.py /path/to/project myremote backups/myproject
+python backup.py /path/to/project myremote backups/myproject --backups-to-keep 4
 ```
 
-- `project_dir`: directory containing your compose file.
+All projects in a directory:
+```bash
+python backup_all.py myremote backups /path/to/projects_root --backups-to-keep 4
+```
+
+- `project_dir`: directory containing your compose file (single project).
+- `projects_dir`: folder whose immediate subdirectories are Compose projects (all projects).
 - `rclone_remote`: name configured in `rclone config` (e.g., `myremote`).
 - `remote_path`: folder path inside that remote (use `''` to target the remote root).
+- `--backups-to-keep`: number of latest backup archives to retain on the remote (default 4).
 
 Example targeting the remote root:
 
 ```bash
-python backup.py /opt/photoprism myremote ''
+python backup.py /opt/photoprism myremote '' --backups-to-keep 6
 ```
 
 ## Typical Compose file
